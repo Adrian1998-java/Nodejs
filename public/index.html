@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>OCR con Tesseract.js (Español)</title>
+</head>
+<body>
+  <h1>OCR Imagen → Texto (Español)</h1>
+  <form id="form">
+    <input type="file" id="imgFile" name="imgFile" accept="image/*" required />
+    <button type="submit">Procesar Imagen</button>
+  </form>
+  <pre id="output"></pre>
+
+  <script>
+    const form = document.getElementById("form");
+    const output = document.getElementById("output");
+
+    form.addEventListener("submit", async (evt) => {
+      evt.preventDefault();
+      const input = document.getElementById("imgFile");
+      if (!input.files.length) return alert("Selecciona una imagen");
+
+      const fd = new FormData();
+      fd.append("imgFile", input.files[0]);
+
+      output.textContent = "Procesando…";
+
+      try {
+        const resp = await fetch("/ocr-image", {
+          method: "POST",
+          body: fd
+        });
+        const json = await resp.json();
+        if (json.text !== undefined) {
+          output.textContent = json.text;
+        } else if (json.error) {
+          output.textContent = "Error: " + json.error;
+        } else {
+          output.textContent = "Respuesta inesperada";
+        }
+      } catch (err) {
+        console.error(err);
+        output.textContent = "Error de red o del servidor";
+      }
+    });
+  </script>
+</body>
+</html>
