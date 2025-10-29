@@ -2,68 +2,54 @@ const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
-const T = require("tesseract.js");
-const worker = T.createWorker();
+const { createWorker } = require("tesseract.js");
 
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
-// Función OCR usando Tesseract.js con español
+/**
+ * OCR en español
+ */
 async function ocrImageEspañol(imagePath) {
+  const worker = await createWorker("spa");
 
-  // Define the logger function to track progress
-  function logProgress(event) {
-    console.log(event);
-  }
-  T.recognize(imagePath, "spa", {
-    logger: logProgress
-  })
-  .then((result) => {
-    console.log('OCR Result:', result.data.text)
-  })
-  .catch((error) => {
-    console.error("ERROR:",error)
-  })
-
-  const text = (await worker).recognize(imagePath);
-
-  await worker.terminate();
-  return text;
-}
-
-// Función OCR con detección de orientación
-async function detectarOrientacionImagen(imagePath) {
   try {
-    console.log("Analizando orientación de la imagen...");
-
-    const { data } = await Tesseract.recognize(imagePath, "spa", {
-      logger: (m) => console.log(m),
-    });
-
-    // Mostrar resultados básicos
-    console.log("Texto detectado:", data.text.trim().substring(0, 100) + "...");
-    
-    // Mostrar datos de orientación (si existen)
-    if (data && data.orientation) {
-      console.log("Orientación detectada:", data.orientation);
-      console.log("Rotar la imagen:", data.orientation.deg, "grados");
-      return data.orientation;
-    } else if (data && data.osd) {
-      // Algunas versiones devuelven `osd` (Orientation and Script Detection)
-      console.log("Orientación detectada:", data.osd);
-      console.log("Rotar la imagen:", data.osd.rotate, "grados");
-      return data.osd;
-    } else {
-      console.log("No se pudo detectar orientación automáticamente.");
-      return null;
-    }
+    const { data } = await worker.recognize(imagePath);
+    console.log("📝 Texto detectado:", data.text.slice(0, 150));
+    return data.text;
   } catch (error) {
-    console.error("Error en OCR:", error);
+    console.error("❌ Error en OCR:", error);
     return null;
+  } finally {
+    await worker.terminate();
   }
 }
 
-// Endpoint para subir imagen y hacer OCR
+/**
+ * Detección de orientación usando modelo OSD
+ */
+async function detectarOrientacionImagen(imagePath) {
+  const worker = await createWorker("osd", {
+    langPath: path.join(__dirname, "tessdata"), // Asegúrate de tener osd.traineddata aquí
+    legacy: true,
+    tessedit_ocr_engine_mode: 0, // Legacy OCR Engine (requerido)
+  });
+
+  try {
+    const { data } = await worker.detect(imagePath);
+    console.log("🧭 Resultado de la orientación:", data);
+    return data;
+  } catch (error) {
+    console.error("❌ Error detectando orientación:", error);
+    return null;
+  } finally {
+    await worker.terminate();
+  }
+}
+
+/**
+ * Endpoint para subir imagen y procesar OCR + orientación
+ */
 app.post("/ocr-image", upload.single("imgFile"), async (req, res) => {
   try {
     if (!req.file) {
@@ -71,22 +57,26 @@ app.post("/ocr-image", upload.single("imgFile"), async (req, res) => {
     }
 
     const imgPath = path.resolve(req.file.path);
+
+    // 1️⃣ Detecta orientación
+    const orientacion = await detectarOrientacionImagen(imgPath);
+
+    // 2️⃣ Ejecuta OCR español
     const text = await ocrImageEspañol(imgPath);
 
-    // Borra la imagen temporal
+    // 3️⃣ Borra archivo temporal
     fs.unlinkSync(imgPath);
 
-    res.json({ text });
+    res.json({ text, orientacion });
   } catch (err) {
     console.error("Error OCR:", err);
     res.status(500).json({ error: "Error al procesar imagen OCR" });
   }
 });
 
-// Servir archivos estáticos (opcional)
 app.use(express.static("public"));
 
 const PORT = 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor OCR corriendo en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor OCR corriendo en http://localhost:${PORT}`);
 });
